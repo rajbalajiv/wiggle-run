@@ -1,0 +1,9 @@
+{
+  "name": "wiggle-run",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Camera-only robot obstacle course with shared leaderboard",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}
