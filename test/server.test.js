@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { issueTicket, verifyTicket, verifyScore, validateName, COURSE_ID } from '../lib/server.js';
+import { issueTicket, verifyTicket, verifyScore, validateName, validateCourse, COURSE_ID, COURSE_IDS } from '../lib/server.js';
 import start from '../api/start.js';
 import score from '../api/score.js';
 import leaderboard from '../api/leaderboard.js';
@@ -14,13 +14,13 @@ test('name validation',()=>{
  for(const bad of ['a','','     ', 'x'.repeat(33),'<script>alert(1)</script>'])assert.throws(()=>validateName(bad));
 });
 test('signed ticket cannot be forged and expires',()=>{
- const ticket=issueTicket('Alpha',FIXED_NOW);
+ const ticket=issueTicket('Alpha','wiggle-v1',FIXED_NOW);
  assert.equal(verifyTicket(ticket,FIXED_NOW+100).name,'Alpha');
  assert.throws(()=>verifyTicket(ticket+'z',FIXED_NOW+100));
  assert.throws(()=>verifyTicket(ticket,FIXED_NOW+13*60000));
 });
 test('scoring rejects fake finish, overscores, excessive time and invalid outcomes',()=>{
- const ticket=issueTicket('Alpha',FIXED_NOW);
+ const ticket=issueTicket('Alpha','wiggle-v1',FIXED_NOW);
  const ok={ticket,distance:84.2,seconds:31.5,outcome:'OUT OF BOUNDS'};
  assert.equal(verifyScore(ok,FIXED_NOW+33000).distance,84.2);
  for(const update of [{distance:101},{outcome:'FINISHED'},{seconds:100},{outcome:'UNKNOWN'},{distance:84.23},{seconds:78}])assert.throws(()=>verifyScore({...ok,...update},FIXED_NOW+33000));
@@ -43,9 +43,24 @@ test('start, save and leaderboard through mocked Supabase',async()=>{
   return {ok:true,text:async()=>JSON.stringify(saved)};
  };
  try{
-  const first=res();await start({method:'POST',body:{name:'robot_alpha'}},first);assert.equal(first.code,200);
-  const second=res();await score({method:'POST',body:{ticket:first.body.ticket,distance:59.5,seconds:2.4,outcome:'OUT OF BOUNDS'}},second);assert.equal(second.code,201);assert.equal(second.body.score.distance,59.5);
-  const third=res();await leaderboard({method:'GET'},third);assert.equal(third.code,200);assert.equal(third.body.scores[0].name,'robot_alpha');
+  const first=res();await start({method:'POST',body:{name:'robot_alpha',course:'hairpin-v1'}},first);assert.equal(first.code,200);
+  const second=res();await score({method:'POST',body:{ticket:first.body.ticket,distance:59.5,seconds:2.4,outcome:'OUT OF BOUNDS'}},second);assert.equal(second.code,201);assert.equal(second.body.score.distance,59.5);assert.equal(second.body.score.course,'hairpin-v1');
+  const third=res();await leaderboard({method:'GET',query:{course:'hairpin-v1'}},third);assert.equal(third.code,200);assert.equal(third.body.course,'hairpin-v1');assert.equal(third.body.scores[0].name,'robot_alpha');
   const duplicated=res();await score({method:'POST',body:{ticket:first.body.ticket,distance:59.5,seconds:2.4,outcome:'OUT OF BOUNDS'}},duplicated);assert.equal(duplicated.code,200);assert.equal(duplicated.body.alreadySaved,true);
  }finally{global.fetch=orig;}
+});
+
+test('all circuits can be signed, each with isolated ID',()=>{
+ assert.equal(COURSE_IDS.length,4);
+ for(const course of COURSE_IDS){
+  const t=issueTicket('Alpha',course,FIXED_NOW);
+  assert.equal(verifyTicket(t,FIXED_NOW+100).course,course);
+  const score=verifyScore({ticket:t,distance:55.0,seconds:12.0,outcome:'OUT OF BOUNDS'},FIXED_NOW+13000);
+  assert.equal(score.course_id,course);
+ }
+ for(const id of ['bad',undefined, 'wiggle-v1&order=whatever'])assert.throws(()=>validateCourse(id));
+});
+test('unknown circuit rejected at start and leaderboard',async()=>{
+ const a=res();await start({method:'POST',body:{name:'Robot',course:'fake'}},a);assert.equal(a.code,400);
+ const b=res();await leaderboard({method:'GET',query:{course:'fake'}},b);assert.equal(b.code,400);
 });

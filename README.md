@@ -1,10 +1,10 @@
 # Wiggle Run
 
-A camera-only obstacle course for robot arms. No robot control, no SDK, no user account, no video uploaded. Each owner uses their own teleoperation software and camera.
+Four camera-only obstacle courses for robot arms. No robot control, no SDK, no user account, no video uploaded. Each owner uses their own teleoperation software and camera.
 
 ## Deploy to Vercel + Supabase
 
-1. Create a Supabase project at https://supabase.com/dashboard . In **SQL Editor**, run `supabase/schema.sql` exactly once.
+1. Create a Supabase project at https://supabase.com/dashboard . In **SQL Editor**, run `supabase/schema.sql` for a new project. If you already have Classic scores, run `supabase/upgrade_courses.sql` instead; do NOT drop the table.
 2. Find **Project URL** and a **secret API key** (`sb_secret_...`) in Supabase Settings > API Keys. **Never put a secret key in browser code or commit it to Git.**
 3. Deploy this directory as a Vercel project (`https://vercel.com/new` from a Git repository, or `npx vercel --prod` in this directory). Choose **Other** framework, root directory at `wiggle-run/` if it is inside a larger repository. No build command needed.
 4. In Vercel project **Settings > Environment Variables**, add these server-side values:
@@ -22,11 +22,11 @@ Run `python3 -m http.server 8080` inside the folder; open **http://localhost:808
 
 ## Camera and rules
 
-- Fixed red course drawn onto a 960x540 virtual camera plane. Use a fixed front or 45-degree camera and adjust robot framing so the marker can reach START and FINISH.
+- Select one of four fixed red courses: Classic, Chicane, Switchback or Hairpin. Each is drawn onto the same 960x540 virtual camera plane, with progressively narrower corridors. Use a fixed front or 45-degree camera and adjust robot framing so the marker can reach START and FINISH.
 - Click a **high-contrast colored patch** attached to the gripper. Any saturated hue can work; if the room has another object with the same color, remove it or choose another marker.
 - Cross START **from left to right** and remain within the red outlines. A confirmed boundary exit, lost tracking, browser tab interruption or 90s timer ends the run. Crossing FINISH scores 100%.
 - The yellow line shows tracked motion. Percent is the furthest valid progress along the fixed path, not motor travel or physical contact.
-- Progress scores can be posted once per signed attempt. Ranking sorts by distance descending, then time ascending. Player names and scores are public.
+- Progress scores can be posted once per signed attempt. Each course has its own leaderboard, sorted by distance descending, then time ascending. Player names and scores are public.
 - You can download a square PNG score card to share with friends. Your video stays in your browser. An optional local video file can be downloaded after the run when supported by the browser. Only name, percent, time, outcome and timestamp are sent to Supabase.
 
 ## Fairness and limitations
@@ -48,3 +48,9 @@ If the camera is unavailable, test whether another app is using it and check bro
 - `test/server.test.js` API unit and end-to-end mock tests
 
 Run `npm test` from the package root to verify server logic.
+
+## Multiple circuits
+
+Choose **Classic**, **Chicane**, **Switchback**, or **Hairpin** before enabling the run. The selection locks for the entire attempt, is signed in the attempt ticket, and is saved to Supabase. Rankings are separated by circuit. A camera-only overlay cannot detect physical contact, and the harder virtual tracks may not be reachable by every robot/camera configuration. Always position the camera and test reachability before an official attempt.
+
+**Existing Supabase projects:** Apply `supabase/upgrade_courses.sql` in SQL Editor before deploying the update. If you do not, posting scores for new courses will fail with a database check constraint error.

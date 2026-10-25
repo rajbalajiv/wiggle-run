@@ -1,3 +1,5 @@
+**If upgrading from Wiggle Run v1:** First run `supabase/upgrade_courses.sql` on your existing Supabase project. This keeps all Classic scores. Then push the updated project files to GitHub; Vercel auto-deploys.
+
 # Deploy Wiggle Run
 
 ## 1. Database (Supabase)

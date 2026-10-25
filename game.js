@@ -1,11 +1,17 @@
 'use strict';
 (function(){
-const W=960,H=540,HALF=29,MAX_SEC=90;
+const W=960,H=540,MAX_SEC=90;
+const COURSES={
+ 'wiggle-v1':{name:'Classic',level:'01 / EASY',half:29,waypoints:[[.205,.625],[.265,.625],[.325,.51],[.41,.51],[.495,.63],[.565,.63],[.66,.45],[.73,.45],[.805,.55],[.87,.55]]},
+ 'chicane-v1':{name:'Chicane',level:'02 / MEDIUM',half:25,waypoints:[[.17,.62],[.235,.62],[.30,.39],[.39,.39],[.46,.64],[.54,.64],[.62,.35],[.70,.35],[.78,.58],[.87,.58]]},
+ 'switchback-v1':{name:'Switchback',level:'03 / HARD',half:22,waypoints:[[.17,.66],[.235,.66],[.295,.37],[.36,.37],[.43,.64],[.50,.64],[.57,.36],[.64,.36],[.71,.64],[.78,.64],[.85,.41],[.90,.41]]},
+ 'hairpin-v1':{name:'Hairpin',level:'04 / EXPERT',half:21,waypoints:[[.16,.73],[.68,.73],[.82,.69],[.84,.58],[.80,.47],[.67,.43],[.41,.43],[.32,.37],[.32,.27],[.43,.22],[.86,.22]]}
+};
+let courseId='wiggle-v1';let WAYPOINTS=COURSES[courseId].waypoints;let HALF=COURSES[courseId].half;
 const demo = new URLSearchParams(location.search).get('demo') === '1';
 let ticket = null, submitted = false, posting = false, pickMode = false, lastPosted = null;
 let color = {h:284,s:.62,v:.61}; // default purple, any saturated color can be sampled
 
-const WAYPOINTS=[[.205,.625],[.265,.625],[.325,.51],[.41,.51],[.495,.63],[.565,.63],[.66,.45],[.73,.45],[.805,.55],[.87,.55]];
 const $=id=>document.getElementById(id);
 const canvas=$('stage'),view=canvas.getContext('2d',{alpha:false}),source=$('source'),sctx=source.getContext('2d',{willReadFrequently:false}),det=$('detect'),dctx=det.getContext('2d',{willReadFrequently:true}),video=$('video');
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -55,14 +61,22 @@ function getCourse(){
  function gate(p,which){const start=which==='start',origin=start?points[0]:points[points.length-1],t=start?tangent0:tangent1,del=sub(p,origin);return {signed:dot(del,t),lateral:dot(del,{x:-t.y,y:t.x})};}
  return {points,segments,total,project,gate,sides:toSides(),start:points[0],end:points[points.length-1]};
 }
-const course=getCourse();
+let course=getCourse();
+function selectCourse(id){
+ if(!(id in COURSES)||game.status!=='idle')return false;
+ courseId=id;WAYPOINTS=COURSES[id].waypoints;HALF=COURSES[id].half;course=getCourse();if(window.ServoBuzzCore)window.ServoBuzzCore.course=course;
+ game.trail=[];lastRaw=null;detected=null;stable=0;ticket=null;
+ document.querySelector('.pill').textContent=(demo?'DEMO / ':'')+COURSES[id].level+' / '+COURSES[id].name.toUpperCase();
+ document.getElementById('courseHint').textContent=COURSES[id].name+' / '+(HALF*2)+' px wide / '+Math.round(course.total)+' px long';
+ renderResults();refreshLeaderboard();return true;
+}
 function sweepOutside(a,b){const length=dst(a,b);let max=0;const n=Math.ceil(length/5);for(let i=0;i<=n;i++){
  const p=plus(a,sub(b,a),i/Math.max(1,n));max=Math.max(max,course.project(p).distance);
 }return max;}
 class Game{
  constructor(){this.rows=[];this.reset();}
- reset(){this.status='idle';this.name='';this.reason='';this.marker=null;this.prev=null;this.prevTime=0;this.lastSeen=0;this.staging=0;this.started=0;this.elapsed=0;this.progress=0;this.outSince=0;this.trail=[];this.attemptNumber=0;}
- enable(name,now){if(this.status!=='idle')throw Error('Reset or record the previous attempt first');const n=name.trim().replace(/\s+/g,' ').slice(0,36);if(!n)throw Error('Enter your name first');this.reset();this.name=n;this.status='armed';this.enabledAt=now;}
+ reset(){this.status='idle';this.courseId=courseId;this.name='';this.reason='';this.marker=null;this.prev=null;this.prevTime=0;this.lastSeen=0;this.staging=0;this.started=0;this.elapsed=0;this.progress=0;this.outSince=0;this.trail=[];this.attemptNumber=0;}
+ enable(name,now){if(this.status!=='idle')throw Error('Reset or record the previous attempt first');const n=name.trim().replace(/\s+/g,' ').slice(0,36);if(!n)throw Error('Enter your name first');this.reset();this.name=n;this.courseId=courseId;this.status='armed';this.enabledAt=now;}
  end(reason,now){if(this.status!=='running')return;this.elapsed=(now-this.started)/1000;this.reason=reason;this.progress=reason==='FINISHED'?1:Math.min(this.progress,.999);this.status='review';}
  tick(marker,now){this.marker=marker;
   if(this.status!=='running'&&this.status!=='armed')return;
@@ -104,7 +118,7 @@ class Game{
   this.trail.push(marker);if(this.trail.length>2500)this.trail.shift();
  }
  save(){if(this.status!=='review')throw Error('No completed attempt');
-  const r={name:this.name,distance:Number((this.progress*100).toFixed(1)),seconds:Number(this.elapsed.toFixed(1)),outcome:this.reason,time:new Date().toLocaleString()};
+  const r={course:this.courseId,name:this.name,distance:Number((this.progress*100).toFixed(1)),seconds:Number(this.elapsed.toFixed(1)),outcome:this.reason,time:new Date().toLocaleString()};
   this.rows.push(r);this.reset();return r;
  }
 }
@@ -134,7 +148,7 @@ function drawFrame(){
   view.drawImage(source,0,0);
  }else{view.fillStyle='#101010';view.fillRect(0,0,W,H);view.fillStyle='#999';view.textAlign='center';view.font='18px Helvetica,Arial,sans-serif';view.fillText('Connect a front-facing camera to begin',W/2,H/2);}
  view.fillStyle='rgba(0,0,0,.65)';view.fillRect(0,0,W,41);
- view.font='bold 15px Helvetica,Arial,sans-serif';view.textAlign='left';view.fillStyle='#fff'; view.fillText((game.name||'WIGGLE RUN').toUpperCase()+'  /  '+game.status.toUpperCase(),15,26);
+ view.font='bold 15px Helvetica,Arial,sans-serif';view.textAlign='left';view.fillStyle='#fff'; view.fillText((game.name||'WIGGLE RUN').toUpperCase()+'  /  '+COURSES[courseId].name.toUpperCase()+'  /  '+game.status.toUpperCase(),15,26);
  view.textAlign='right';view.fillText(game.status==='running'?game.elapsed.toFixed(1)+'s  /  '+(game.progress*100).toFixed(1)+'%':(game.progress*100).toFixed(1)+'%',W-15,26);
  drawFixed();
  if(game.trail.length>1){view.save();view.strokeStyle='#ffe14b';view.lineWidth=3;view.lineCap='round';view.lineJoin='round';pts(view,game.trail);view.stroke();view.restore();}
@@ -236,7 +250,7 @@ function showReview(){
  $('review').classList.add('visible');$('reviewTitle').textContent=game.reason==='FINISHED'?'Course completed':'Run ended: '+game.reason;
  $('reviewDistance').textContent=(game.progress*100).toFixed(1)+'%';
  $('reviewDetails').textContent=game.name+' / '+game.elapsed.toFixed(1)+' seconds';
- $('enable').disabled=true;$('player').disabled=true;$('camera').disabled=true;$('mirror').disabled=true;$('pick').disabled=true;
+ $('enable').disabled=true;$('player').disabled=true;$('camera').disabled=true;$('mirror').disabled=true;$('pick').disabled=true;$('course').disabled=true;
  $('record').disabled=false;$('record').textContent=demo?'Save demo result':'Post to leaderboard';
  $('share').classList.remove('hide');$('card').classList.remove('hide');$('share').textContent='Copy result';
  setNotice('Run complete. Post the score or try again. Video is available if your browser supports recording.');
@@ -287,10 +301,11 @@ async function connect(){
  finally{$('connect').disabled=false;}
 }
 function copyText(t){if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(t);const e=document.createElement('textarea');e.value=t;document.body.append(e);e.select();try{document.execCommand('copy');}finally{e.remove();}return Promise.resolve();}
-function scoreLine(r){return r.name+': '+r.distance.toFixed(1)+'% / '+r.seconds.toFixed(1)+'s / '+r.outcome+' | wiggle run';}
+function scoreLine(r){return (COURSES[r.course]||COURSES['wiggle-v1']).name+' / '+r.name+': '+r.distance.toFixed(1)+'% / '+r.seconds.toFixed(1)+'s / '+r.outcome+' | wiggle run';}
 function renderResults(){
- const list=$('results');list.textContent='';$('empty').classList.toggle('hide',game.rows.length>0);
- const ranks=[...game.rows].sort((a,b)=>b.distance-a.distance||a.seconds-b.seconds);
+ const list=$('results');list.textContent='';
+ const ranks=game.rows.filter(r=>(r.course||'wiggle-v1')===courseId).sort((a,b)=>b.distance-a.distance||a.seconds-b.seconds);
+ $('empty').classList.toggle('hide',ranks.length>0);
  ranks.slice(0,20).forEach((r,i)=>{const li=document.createElement('li');const a=document.createElement('span');a.textContent=(i+1)+'. '+r.name;const b=document.createElement('b');b.textContent=r.distance.toFixed(1)+'%';li.append(a,b);list.append(li);});
 }
 async function fetchJson(url,options){
@@ -302,7 +317,7 @@ async function fetchJson(url,options){
 async function refreshLeaderboard(){
  if(demo){$('lbStatus').textContent='Demo mode. Scores are not published.';return;}
  try{
-  const data=await fetchJson('/api/leaderboard');
+  const data=await fetchJson('/api/leaderboard?course='+encodeURIComponent(courseId));
   const list=$('leaderboard');list.textContent='';
   (data.scores||[]).forEach((r,i)=>{const li=document.createElement('li');const name=document.createElement('span');name.textContent=(i+1)+'. '+r.name;
    const score=document.createElement('b');score.textContent=Number(r.distance).toFixed(1)+'%  /  '+Number(r.seconds).toFixed(1)+'s';
@@ -311,18 +326,28 @@ async function refreshLeaderboard(){
   $('lbStatus').textContent=(data.scores||[]).length?'Top '+data.scores.length+' attempts':'No scores yet. Be the first.';
  }catch(err){$('lbStatus').textContent='Leaderboard unavailable. '+err.message;}
 }
-function md(){const rows=[...game.rows].sort((a,b)=>b.distance-a.distance||a.seconds-b.seconds),lines=['# Wiggle Run','', 'Session scorecard','', '| Rank | Participant | Distance | Time | Result |','| ---: | --- | ---: | ---: | --- |'];
- rows.forEach((r,i)=>lines.push('| '+(i+1)+' | '+r.name.replace(/\|/g,'/')+' | '+r.distance.toFixed(1)+'% | '+r.seconds.toFixed(1)+'s | '+r.outcome+' |'));
- lines.push('','Recorded attempts: '+rows.length,'','Distance is estimated locally using a selected colored marker and a fixed 2D camera course. Physical collisions are not detected.','');return lines.join('\n');}
+function md(){
+ const lines=['# Wiggle Run','','Session scorecard',''];
+ for(const [id,courseDef] of Object.entries(COURSES)){
+  const rows=game.rows.filter(r=>(r.course||'wiggle-v1')===id).sort((a,b)=>b.distance-a.distance||a.seconds-b.seconds);
+  if(!rows.length)continue;
+  lines.push('## '+courseDef.name,'','| Rank | Participant | Distance | Time | Result |','| ---: | --- | ---: | ---: | --- |');
+  rows.forEach((r,i)=>lines.push('| '+(i+1)+' | '+r.name.replace(/\|/g,'/')+' | '+r.distance.toFixed(1)+'% | '+r.seconds.toFixed(1)+'s | '+r.outcome+' |'));
+  lines.push('');
+ }
+ lines.push('Recorded attempts: '+game.rows.length,'','Distance is estimated locally using a selected colored marker and a fixed 2D camera course. Physical collisions are not detected.','');
+ return lines.join('\n');
+}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function safeFile(s){return s.replace(/[^a-z0-9_-]/gi,'_').slice(0,32)||'participant';}
 function resetAttempt(){
  stopRecording();game.reset();ticket=null;submitted=false;posting=false;lastEndNotified='';clipBlob=null;clipUrl=null;
- $('review').classList.remove('visible');$('enable').disabled=!stream;$('player').disabled=false;$('camera').disabled=false;$('mirror').disabled=false;$('pick').disabled=!stream;$('clip').disabled=true;
+ $('review').classList.remove('visible');$('enable').disabled=!stream;$('player').disabled=false;$('camera').disabled=false;$('mirror').disabled=false;$('pick').disabled=!stream;$('course').disabled=false;$('clip').disabled=true;
  setNotice('Ready for another run. Enter your name and select Enable.');
 }
 $('connect').addEventListener('click',connect);
 $('camera').addEventListener('change',()=>{if(game.status==='idle'&&stream)connect();});
+$('course').addEventListener('change',e=>{if(game.status!=='idle'){e.target.value=courseId;return;}selectCourse(e.target.value);setNotice('Course selected. Frame your robot so the marker can reach both gates.');});
 $('mirror').addEventListener('click',()=>{if(game.status!=='idle')return;mirrored=!mirrored;detected=null;lastRaw=null;stable=0;$('mirror').textContent='Mirror: '+(mirrored?'on':'off');});
 $('pick').addEventListener('click',()=>{
  if(!stream||game.status!=='idle')return;
@@ -345,9 +370,9 @@ $('enable').addEventListener('click',async()=>{
   const name=$('player').value.trim();
   if(!name||name.length<2||name.length>32)throw Error('Enter a name between 2 and 32 characters.');
   setNotice(demo?'Enabling demo attempt...':'Preparing online attempt...');
-  ticket=demo?'demo':(await fetchJson('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})})).ticket;
+  ticket=demo?'demo':(await fetchJson('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,course:courseId})})).ticket;
   game.enable(name,performance.now());submitted=false;lastEndNotified='';
-  $('player').disabled=true;$('camera').disabled=true;$('mirror').disabled=true;$('pick').disabled=true;
+  $('player').disabled=true;$('camera').disabled=true;$('mirror').disabled=true;$('pick').disabled=true;$('course').disabled=true;
   pickMode=false;$('stagewrap').classList.remove('picking');$('pick').textContent='Pick marker color';
  }catch(e){$('enable').disabled=false;ticket=null;setNotice(e.message,true);}
 });
@@ -355,7 +380,7 @@ $('reset').addEventListener('click',resetAttempt);
 $('record').addEventListener('click',async()=>{
  if(game.status!=='review'||submitted||posting)return;
  posting=true;$('record').disabled=true;$('record').textContent='Posting...';
- const row={name:game.name,distance:Number((game.progress*100).toFixed(1)),seconds:Number(game.elapsed.toFixed(1)),outcome:game.reason,time:new Date().toLocaleString()};
+ const row={course:game.courseId,name:game.name,distance:Number((game.progress*100).toFixed(1)),seconds:Number(game.elapsed.toFixed(1)),outcome:game.reason,time:new Date().toLocaleString()};
  try{
   if(!demo){const answer=await fetchJson('/api/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket,distance:row.distance,seconds:row.seconds,outcome:row.outcome})});lastPosted=answer.score;}
   submitted=true;game.rows.push(row);
@@ -368,7 +393,7 @@ $('record').addEventListener('click',async()=>{
 });
 $('share').addEventListener('click',async()=>{
  if(game.status!=='review')return;
- const r={name:game.name,distance:Number((game.progress*100).toFixed(1)),seconds:Number(game.elapsed.toFixed(1)),outcome:game.reason};
+ const r={course:game.courseId,name:game.name,distance:Number((game.progress*100).toFixed(1)),seconds:Number(game.elapsed.toFixed(1)),outcome:game.reason};
  try{await copyText(scoreLine(r)+(submitted?'':' (not posted)')+' | '+location.origin);setNotice('Copied. Tag three robot owners to try the challenge.');}catch(e){setNotice('Copy unavailable. '+scoreLine(r),true);}
 });
 
@@ -378,7 +403,7 @@ $('card').addEventListener('click',()=>{
  const ctx=card.getContext('2d');ctx.fillStyle='#0b0b0b';ctx.fillRect(0,0,1080,1080);
  ctx.strokeStyle='#343434';ctx.lineWidth=3;ctx.strokeRect(46,46,988,988);
  ctx.fillStyle='#fff';ctx.font='bold 62px Helvetica,Arial,sans-serif';ctx.fillText('wiggle run.',100,160);
- ctx.fillStyle='#a5a5a5';ctx.font='25px Helvetica,Arial,sans-serif';ctx.fillText('a little obstacle course for robots',100,208);
+ ctx.fillStyle='#a5a5a5';ctx.font='25px Helvetica,Arial,sans-serif';ctx.fillText('a little obstacle course for robots',100,208);ctx.fillText((COURSES[game.courseId]||COURSES['wiggle-v1']).name.toUpperCase(),100,255);
  ctx.fillStyle='#f0f0ef';ctx.font='bold 30px Helvetica,Arial,sans-serif';ctx.fillText(game.name.slice(0,30),100,354);
  ctx.fillStyle='#fff';ctx.font='bold 200px Helvetica,Arial,sans-serif';ctx.fillText((game.progress*100).toFixed(1)+'%',94,588);
  ctx.fillStyle='#acacac';ctx.font='28px Helvetica,Arial,sans-serif';ctx.fillText('DISTANCE COMPLETED',103,651);
@@ -393,10 +418,10 @@ $('export').addEventListener('click',()=>{download(new Blob([md()],{type:'text/m
 $('refresh').addEventListener('click',refreshLeaderboard);
 $('how').addEventListener('click',()=>{$('modalback').classList.remove('hide');});
 $('gotit').addEventListener('click',()=>{$('modalback').classList.add('hide');try{localStorage.setItem('wiggle_help_seen','1');}catch(_){}});
-if(demo){document.querySelector('.pill').textContent='DEMO / NOT PUBLISHED';}
+
 try{if(localStorage.getItem('wiggle_help_seen')==='1')$('modalback').classList.add('hide');}catch(_){ }
 try{const stored=JSON.parse(localStorage.getItem('wiggle_run_local_v1')||'[]');if(Array.isArray(stored))game.rows=stored.filter(x=>x&&typeof x.distance==='number').slice(-100);}catch(_){ }
-renderResults();drawFrame();refreshLeaderboard();requestAnimationFrame(loop);
+selectCourse(courseId);drawFrame();requestAnimationFrame(loop);
 setInterval(()=>{if(!document.hidden)refreshLeaderboard();},30000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.status==='running')game.end('INTERRUPTED',performance.now());});
 })();
