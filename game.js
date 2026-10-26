@@ -1,3 +1,4 @@
+import {CREATOR_X_HANDLE, creatorProfileUrl, buildXCaption, xIntentUrl, gameUrl} from './social.js';
 'use strict';
 (function(){
 const W=960,H=540,MAX_SEC=90;
@@ -14,6 +15,8 @@ let color = {h:284,s:.62,v:.61}; // default purple, any saturated color can be s
 
 const $=id=>document.getElementById(id);
 const canvas=$('stage'),view=canvas.getContext('2d',{alpha:false}),source=$('source'),sctx=source.getContext('2d',{willReadFrequently:false}),det=$('detect'),dctx=det.getContext('2d',{willReadFrequently:true}),video=$('video');
+const creatorLink=$('creatorX');const creatorHref=creatorProfileUrl();
+if(creatorHref){creatorLink.href=creatorHref;creatorLink.hidden=false;creatorLink.textContent='@'+CREATOR_X_HANDLE.replace(/^@/, '')+' on X';}else{creatorLink.hidden=true;}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const dst=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const plus=(a,b,s=1)=>({x:a.x+s*b.x,y:a.y+s*b.y});
@@ -125,7 +128,7 @@ class Game{
 window.ServoBuzzCore={Game,getCourse,course};
 const game=new Game();
 let stream=null,mirrored=false,lastDraw=0,lastDetect=0,detected=null,detectedAt=0,stable=0,lastRaw=null,lastRawAt=0;
-let recorder=null,recordedParts=[],clipBlob=null,clipName='',clipUrl=null,clipType='';let lastEndNotified='';
+let recorder=null,recordedParts=[],clipBlob=null,clipName='',clipUrl=null,clipType='',recordingGeneration=0;let lastEndNotified='';
 const setNotice=(s,bad=false)=>{const e=$('notice');e.textContent=s;e.classList.toggle('error',bad);};
 function pts(ctx,arr){ctx.beginPath();ctx.moveTo(arr[0].x,arr[0].y);for(let i=1;i<arr.length;i++)ctx.lineTo(arr[i].x,arr[i].y);}
 function drawFixed(){
@@ -232,16 +235,17 @@ function updateTracking(now){
  game.tick(stable>=3?detected:null,now);
 }
 function chooseMediaRecorderType(){if(!window.MediaRecorder)return '';
- const types=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4'];
+ // Prefer X-friendly MP4/H.264 when browser recording supports it.
+ const types=['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'];
  return types.find(t=>MediaRecorder.isTypeSupported(t))||'';
 }
 function startRecording(){
- recordedParts=[];clipBlob=null;clipName='';
+ const generation=++recordingGeneration;recordedParts=[];clipBlob=null;clipName='';$('clip').disabled=true;$('shareClip').disabled=true;
  const type=chooseMediaRecorderType();if(!type||!canvas.captureStream)return;
  try{
   const media=canvas.captureStream(20);recorder=new MediaRecorder(media,{mimeType:type,videoBitsPerSecond:1800000});clipType=type;
   recorder.ondataavailable=e=>{if(e.data&&e.data.size)recordedParts.push(e.data);};
-  recorder.onstop=()=>{if(recordedParts.length){clipBlob=new Blob(recordedParts,{type:clipType});$('clip').disabled=false;}};
+  recorder.onstop=()=>{if(generation!==recordingGeneration)return;if(recordedParts.length){clipBlob=new Blob(recordedParts,{type:clipType});$('clip').disabled=false;$('shareClip').disabled=false;}};
   recorder.start(1000);
  }catch(e){console.warn('Recording unavailable',e);recorder=null;}
 }
@@ -252,7 +256,7 @@ function showReview(){
  $('reviewDetails').textContent=game.name+' / '+game.elapsed.toFixed(1)+' seconds';
  $('enable').disabled=true;$('player').disabled=true;$('camera').disabled=true;$('mirror').disabled=true;$('pick').disabled=true;$('course').disabled=true;
  $('record').disabled=false;$('record').textContent=demo?'Save demo result':'Post to leaderboard';
- $('share').classList.remove('hide');$('card').classList.remove('hide');$('share').textContent='Copy result';
+ $('share').classList.remove('hide');$('card').classList.remove('hide');$('postX').classList.remove('hide');$('shareClip').classList.remove('hide');$('share').textContent='Copy result';
  setNotice('Run complete. Post the score or try again. Video is available if your browser supports recording.');
 }
 function updateUI(now){
@@ -341,8 +345,8 @@ function md(){
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function safeFile(s){return s.replace(/[^a-z0-9_-]/gi,'_').slice(0,32)||'participant';}
 function resetAttempt(){
- stopRecording();game.reset();ticket=null;submitted=false;posting=false;lastEndNotified='';clipBlob=null;clipUrl=null;
- $('review').classList.remove('visible');$('enable').disabled=!stream;$('player').disabled=false;$('camera').disabled=false;$('mirror').disabled=false;$('pick').disabled=!stream;$('course').disabled=false;$('clip').disabled=true;
+ stopRecording();recordingGeneration++;game.reset();ticket=null;submitted=false;posting=false;lastEndNotified='';clipBlob=null;clipUrl=null;
+ $('review').classList.remove('visible');$('enable').disabled=!stream;$('player').disabled=false;$('camera').disabled=false;$('mirror').disabled=false;$('pick').disabled=!stream;$('course').disabled=false;$('clip').disabled=true;$('shareClip').disabled=true;
  setNotice('Ready for another run. Enter your name and select Enable.');
 }
 $('connect').addEventListener('click',connect);
@@ -395,6 +399,34 @@ $('share').addEventListener('click',async()=>{
  if(game.status!=='review')return;
  const r={course:game.courseId,name:game.name,distance:Number((game.progress*100).toFixed(1)),seconds:Number(game.elapsed.toFixed(1)),outcome:game.reason};
  try{await copyText(scoreLine(r)+(submitted?'':' (not posted)')+' | '+location.origin);setNotice('Copied. Tag three robot owners to try the challenge.');}catch(e){setNotice('Copy unavailable. '+scoreLine(r),true);}
+});
+
+// Results stay on the player's device. X receives only a prefilled post;
+// attaching video still requires the player's explicit action.
+function resultForShare(){return {name:game.name,course:(COURSES[game.courseId]||COURSES['wiggle-v1']).name,distance:game.progress*100,seconds:game.elapsed,outcome:game.reason};}
+function videoFilename(){return 'wiggle-run-'+safeFile(game.name)+'.'+(clipType.includes('mp4')?'mp4':'webm');}
+$('postX').addEventListener('click',()=>{
+ if(game.status!=='review')return;
+ const text=buildXCaption(resultForShare());
+ const draft=xIntentUrl(text,location.href);
+ const opened=window.open(draft,'_blank','noopener,noreferrer');
+ if(clipBlob){download(clipBlob,videoFilename());}
+ if(!opened&&navigator.clipboard?.writeText){copyText(text+'\n\n'+gameUrl(location.href)).catch(()=>{});}
+ setNotice(clipBlob?'X draft opened and clip downloaded. Attach the video in X, then tag three robot owners. Nothing posts automatically.':'X draft opened. Recording was unavailable; save your score card and attach it on X. Nothing posts automatically.');
+});
+$('shareClip').addEventListener('click',async()=>{
+ if(game.status!=='review'||!clipBlob)return;
+ const file=new File([clipBlob],videoFilename(),{type:clipBlob.type||clipType});
+ const text=buildXCaption(resultForShare());
+ try{
+  if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+   await navigator.share({files:[file],title:'Wiggle Run',text,url:gameUrl(location.href)});
+   setNotice('Choose X in your share sheet if available. Nothing was uploaded by the game.');
+  }else{
+   download(clipBlob,videoFilename());
+   setNotice('Video saved. Use Share on X for a prefilled post, then attach the clip manually.');
+  }
+ }catch(e){if(e?.name!=='AbortError')setNotice('Could not open share sheet. Use Save video and Share on X instead.',true);}
 });
 
 $('card').addEventListener('click',()=>{
